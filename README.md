@@ -21,6 +21,22 @@ tags:
 
 > Part of the [Zen LM](https://zenlm.org) family - powering broadcast-grade AI dubbing
 
+## Powered by Zen Omni's Native Multimodal Capabilities
+
+Zen-Dub-Live leverages **Qwen3-Omni-30B-A3B** for true end-to-end speech-to-speech translation:
+
+| Component | Layers | Purpose |
+|-----------|--------|---------|
+| **Audio Encoder** | 32 | Speech recognition (19 languages) |
+| **Vision Encoder** | 27 | Lip reading & video context |
+| **Thinker (MoE)** | 48 | 128 experts, 8 active - multimodal reasoning |
+| **Talker (MoE)** | 20 | 128 experts, 6 active - speech generation |
+| **Code2Wav** | - | Neural codec → 24kHz native audio |
+
+**Key**: No separate TTS needed - Zen Omni generates translated audio natively!
+
+Built-in voices: `chelsie`, `ethan`, `aiden`
+
 ## Overview
 
 Zen-Dub-Live is a real-time AI dubbing platform for broadcast-grade speech-to-speech translation with synchronized video lip-sync. The system ingests live video and audio, translates speech, synthesizes anchor-specific voices, and re-renders mouth regions so that lip movements match the translated speech—all under live broadcast latency constraints.
