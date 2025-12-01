@@ -1,14 +1,22 @@
 """
 Stage 2: Understanding & Translation
 
-Speech-to-speech translation using Zen Omni with streaming support.
+Speech-to-speech translation using Zen Omni with native audio output.
+
+Qwen3-Omni Architecture:
+- Thinker: Audio encoder (32L) + Vision encoder (27L) + Text MoE (48L, 128 experts)
+- Talker: Text MoE (20L, 128 experts) + Code Predictor (5L)
+- Code2Wav: Neural codec (16 quantizers) → 24kHz waveform
+
+Key: Zen Omni does translation AND audio generation end-to-end!
+No separate TTS model needed - native speech-to-speech.
 """
 
 import asyncio
 import time
 from dataclasses import dataclass
 from threading import Thread
-from typing import AsyncIterator, Dict, List, Optional
+from typing import AsyncIterator, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -21,24 +29,36 @@ except ImportError:
     TextIteratorStreamer = None
 
 
+# Built-in Zen Omni speaker voices
+OMNI_SPEAKERS = {
+    "chelsie": 2301,
+    "ethan": 2302,
+    "aiden": 2303
+}
+
+
 @dataclass
 class TranslationChunk:
-    """A chunk of translated text."""
+    """A chunk of translated text with optional audio."""
     text: str
     timestamp: float
     is_final: bool
     confidence: float = 1.0
+    audio_chunk: Optional[np.ndarray] = None
 
 
 @dataclass
 class TranslationResult:
-    """Complete translation result."""
+    """Complete translation result with native audio output."""
     source_text: str
     target_text: str
     source_lang: str
     target_lang: str
     duration: float
+    # Native audio output from Zen Omni (no separate TTS needed!)
     audio: Optional[np.ndarray] = None
+    audio_sample_rate: int = 24000
+    speaker_id: str = "chelsie"
 
 
 @dataclass
@@ -103,17 +123,28 @@ class TranslationContext:
 
 
 class ZenOmniTranslator:
-    """Speech-to-speech translation using Zen Omni."""
+    """
+    Speech-to-speech translation using Zen Omni with native audio output.
+
+    Zen Omni provides end-to-end translation:
+    - Audio input → Thinker (understanding) → Talker (generation) → Code2Wav (audio)
+    - Vision input for lip reading and video context
+    - Native multilingual speech output (no separate TTS needed)
+
+    Built-in speakers: chelsie, ethan, aiden
+    """
 
     def __init__(
         self,
         model_path: str = "zenlm/zen-omni",
         device: str = "auto",
-        torch_dtype: str = "bfloat16"
+        torch_dtype: str = "bfloat16",
+        speaker: str = "chelsie"  # Default voice
     ):
         self.model_path = model_path
         self.device = device
         self.torch_dtype = torch_dtype
+        self.speaker = speaker
         self.model = None
         self.processor = None
         self.context = TranslationContext()
@@ -140,7 +171,8 @@ class ZenOmniTranslator:
             self.model_path,
             torch_dtype=dtype_map.get(self.torch_dtype, torch.bfloat16),
             device_map=self.device,
-            trust_remote_code=True
+            trust_remote_code=True,
+            enable_audio_output=True  # Enable native audio generation
         )
 
     def translate(
@@ -148,54 +180,94 @@ class ZenOmniTranslator:
         audio: np.ndarray,
         source_lang: str = "en",
         target_lang: str = "es",
-        sample_rate: int = 16000
+        sample_rate: int = 16000,
+        video_frames: Optional[List[np.ndarray]] = None,  # For lip reading
+        return_audio: bool = True
     ) -> TranslationResult:
-        """Translate audio synchronously."""
+        """
+        Translate audio with native speech output.
+
+        Args:
+            audio: Input audio array
+            source_lang: Source language code
+            target_lang: Target language code
+            sample_rate: Audio sample rate
+            video_frames: Optional video frames for lip reading context
+            return_audio: Whether to generate native audio output
+
+        Returns:
+            TranslationResult with text AND native audio
+        """
         if self.model is None:
             self.load()
 
         start_time = time.time()
 
-        # Build prompt with context
-        context = self.context.get_context_prompt()
-        prompt = f"""Translate the following speech from {source_lang} to {target_lang}.
-Context:
-{context}
+        # Build conversation with translation task
+        conversation = [
+            {
+                "role": "system",
+                "content": f"You are a translator. Translate speech from {source_lang} to {target_lang}. Respond in {target_lang} audio."
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "audio", "audio": audio}
+                ]
+            }
+        ]
 
-Translate:"""
+        # Add video context if provided (lip reading)
+        if video_frames is not None and len(video_frames) > 0:
+            conversation[1]["content"].insert(0, {
+                "type": "video",
+                "video": video_frames
+            })
 
-        # Process input
-        inputs = self.processor(
-            text=prompt,
-            audio=audio,
-            sampling_rate=sample_rate,
+        # Process inputs
+        inputs = self.processor.apply_chat_template(
+            conversation,
+            add_generation_prompt=True,
+            tokenize=True,
+            return_dict=True,
             return_tensors="pt"
         ).to(self.model.device)
 
-        # Generate
+        # Generate with audio output
         with torch.no_grad():
-            outputs = self.model.generate(
-                **inputs,
-                max_new_tokens=256,
-                do_sample=True,
-                temperature=0.7,
-                use_cache=True
-            )
-
-        # Decode
-        result_text = self.processor.decode(outputs[0], skip_special_tokens=True)
-
-        # Extract translation (after the prompt)
-        target_text = result_text.split("Translate:")[-1].strip()
+            if return_audio and hasattr(self.model, 'generate_with_audio'):
+                # Native speech-to-speech generation
+                outputs = self.model.generate_with_audio(
+                    **inputs,
+                    max_new_tokens=512,
+                    speaker_id=OMNI_SPEAKERS.get(self.speaker, 2301),
+                    do_sample=True,
+                    temperature=0.7
+                )
+                text_output = outputs.text
+                audio_output = outputs.audio  # Native 24kHz audio!
+            else:
+                # Fallback to text-only
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=256,
+                    do_sample=True,
+                    temperature=0.7
+                )
+                text_output = self.processor.decode(outputs[0], skip_special_tokens=True)
+                audio_output = None
 
         duration = time.time() - start_time
 
         return TranslationResult(
-            source_text="",  # Would need ASR
-            target_text=target_text,
+            source_text="",
+            target_text=text_output,
             source_lang=source_lang,
             target_lang=target_lang,
-            duration=duration
+            duration=duration,
+            audio=audio_output,  # Native audio from Zen Omni!
+            audio_sample_rate=24000,
+            speaker_id=self.speaker
         )
 
     async def translate_stream(
