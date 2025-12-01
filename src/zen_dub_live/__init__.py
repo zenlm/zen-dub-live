@@ -17,7 +17,7 @@ from .capture import AudioCapture, VideoCapture, StreamSynchronizer
 from .translation import ZenOmniTranslator, TranslationContext
 from .synthesis import AnchorVoice, ProsodyTransfer, VisemeGenerator
 from .render import ZenDubRenderer, OneStepInpainter, TemporalSmoother
-from .orchestration import HanzoOrchestrator, BroadcastOutput
+from .orchestration import ZenLiveOrchestrator, HanzoOrchestrator, BroadcastOutput
 
 __all__ = [
     # Pipeline
@@ -38,7 +38,8 @@ __all__ = [
     "ZenDubRenderer",
     "OneStepInpainter",
     "TemporalSmoother",
-    # Orchestration
-    "HanzoOrchestrator",
+    # Orchestration (zen-live integration)
+    "ZenLiveOrchestrator",
+    "HanzoOrchestrator",  # Alias for backwards compat
     "BroadcastOutput",
 ]

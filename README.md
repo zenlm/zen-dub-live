@@ -59,11 +59,11 @@ Zen-Dub-Live is a real-time AI dubbing platform for broadcast-grade speech-to-sp
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │              HANZO ORCHESTRATION LAYER                            │   │
-│  │  • SDI/IP ingest (SMPTE 2110, NDI, RTMP)                         │   │
+│  │                      ZEN-LIVE                                     │   │
+│  │  • WebRTC/WHIP/WHEP streaming (github.com/zenlm/zen-live)        │   │
+│  │  • SDI/IP ingest (SMPTE 2110, NDI, RTMP, SRT)                    │   │
 │  │  • A/V sync with PTP reference                                    │   │
-│  │  • VAD-aware chunking                                             │   │
-│  │  • Backpressure management                                        │   │
+│  │  • VAD-aware chunking + backpressure management                   │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
 │                              ↓                                           │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
