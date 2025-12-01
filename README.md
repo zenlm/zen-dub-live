@@ -21,21 +21,33 @@ tags:
 
 > Part of the [Zen LM](https://zenlm.org) family - powering broadcast-grade AI dubbing
 
-## Powered by Zen Omni's Native Multimodal Capabilities
+## Powered by Zen Omni's Native End-to-End Architecture
 
-Zen-Dub-Live leverages **Qwen3-Omni-30B-A3B** for true end-to-end speech-to-speech translation:
+Zen-Dub-Live leverages Zen Omni's unified Thinker-Talker architecture for true end-to-end speech-to-speech translation:
 
-| Component | Layers | Purpose |
-|-----------|--------|---------|
-| **Audio Encoder** | 32 | Speech recognition (19 languages) |
-| **Vision Encoder** | 27 | Lip reading & video context |
-| **Thinker (MoE)** | 48 | 128 experts, 8 active - multimodal reasoning |
-| **Talker (MoE)** | 20 | 128 experts, 6 active - speech generation |
-| **Code2Wav** | - | Neural codec → 24kHz native audio |
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         ZEN OMNI                                │
+├─────────────────────────────────────────────────────────────────┤
+│  THINKER (Understanding)                                        │
+│  ├── AuT Audio Encoder (650M) → 12.5Hz token rate              │
+│  ├── SigLIP2 Vision Encoder (540M) → lip reading, video        │
+│  └── MoE LLM (48L, 128 experts) → multimodal reasoning         │
+│                         ↓                                       │
+│  TALKER (Speech Generation)                                     │
+│  ├── MoE Transformer (20L, 128 experts)                        │
+│  ├── MTP Module → 16-codebook prediction per frame             │
+│  └── Code2Wav ConvNet → streaming 24kHz waveform               │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-**Key**: No separate TTS needed - Zen Omni generates translated audio natively!
+**Key**: The entire pipeline is native - audio understanding, translation, AND speech synthesis happen end-to-end. No separate ASR or TTS models needed.
 
-Built-in voices: `chelsie`, `ethan`, `aiden`
+- **First-packet latency**: 234ms (audio) / 547ms (video)
+- **Built-in voices**: `chelsie`, `ethan`, `aiden`
+- **Languages**: 119 text, 19 speech input, 10 speech output
+
+See: [Zen Omni Technical Report](https://arxiv.org/abs/2509.17765)
 
 ## Overview
 
