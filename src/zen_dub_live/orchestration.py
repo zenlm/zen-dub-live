@@ -1,7 +1,8 @@
 """
-Hanzo Orchestration Layer
+Zen-Live Orchestration Layer
 
 Central coordination for real-time dubbing pipeline with broadcast integration.
+Integrates with zen-live (github.com/zenlm/zen-live) for WebRTC/broadcast streaming.
 """
 
 import asyncio
@@ -289,12 +290,22 @@ class SessionConfig:
     output_config: Dict[str, Any] = field(default_factory=dict)
 
 
-class HanzoOrchestrator:
-    """Central orchestrator for real-time dubbing."""
+class ZenLiveOrchestrator:
+    """
+    Central orchestrator for real-time dubbing.
 
-    def __init__(self):
+    Integrates with zen-live for WebRTC streaming infrastructure:
+    - WebRTC via WHIP/WHEP endpoints
+    - Broadcast output (SRT, RTMP, NDI)
+    - Control room UI at zen-live /monitor endpoint
+
+    See: https://github.com/zenlm/zen-live
+    """
+
+    def __init__(self, zen_live_url: Optional[str] = None):
         self.sessions: Dict[str, "DubbingSession"] = {}
         self.metrics = PipelineMetrics()
+        self.zen_live_url = zen_live_url or "http://localhost:8000"
 
     async def create_session(self, config: SessionConfig) -> "DubbingSession":
         """Create a new dubbing session."""
@@ -315,6 +326,10 @@ class HanzoOrchestrator:
     def get_metrics(self) -> Dict[str, float]:
         """Get global metrics."""
         return self.metrics.get_summary()
+
+
+# Alias for backwards compatibility
+HanzoOrchestrator = ZenLiveOrchestrator
 
 
 class DubbingSession:
