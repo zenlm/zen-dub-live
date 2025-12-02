@@ -30,10 +30,10 @@ except ImportError:
 
 
 # Built-in Zen Omni speaker voices
+# cherry = female, noah = male (originally "Chery" and "Nofish" in base model)
 OMNI_SPEAKERS = {
-    "chelsie": 2301,
-    "ethan": 2302,
-    "aiden": 2303
+    "cherry": 1,   # Female voice
+    "noah": 2,     # Male voice
 }
 
 
@@ -58,7 +58,7 @@ class TranslationResult:
     # Native audio output from Zen Omni (no separate TTS needed!)
     audio: Optional[np.ndarray] = None
     audio_sample_rate: int = 24000
-    speaker_id: str = "chelsie"
+    speaker_id: str = "cherry"  # Default: female voice
 
 
 @dataclass
@@ -131,7 +131,9 @@ class ZenOmniTranslator:
     - Vision input for lip reading and video context
     - Native multilingual speech output (no separate TTS needed)
 
-    Built-in speakers: chelsie, ethan, aiden
+    Built-in speakers: cherry (female), noah (male)
+
+    Custom voices can be added via voice cloning - see AnchorVoice class.
     """
 
     def __init__(
@@ -139,7 +141,7 @@ class ZenOmniTranslator:
         model_path: str = "zenlm/zen-omni",
         device: str = "auto",
         torch_dtype: str = "bfloat16",
-        speaker: str = "chelsie"  # Default voice
+        speaker: str = "cherry"  # Default voice (female)
     ):
         self.model_path = model_path
         self.device = device

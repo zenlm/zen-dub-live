@@ -44,10 +44,43 @@ Zen-Dub-Live leverages Zen Omni's unified Thinker-Talker architecture for true e
 **Key**: The entire pipeline is native - audio understanding, translation, AND speech synthesis happen end-to-end. No separate ASR or TTS models needed.
 
 - **First-packet latency**: 234ms (audio) / 547ms (video)
-- **Built-in voices**: `chelsie`, `ethan`, `aiden`
-- **Languages**: 119 text, 19 speech input, 10 speech output
+- **Built-in voices**: `cherry` (female), `noah` (male)
+- **Languages**: 119 text, 19 speech input, 2 speech output voices
 
 See: [Zen Omni Technical Report](https://arxiv.org/abs/2509.17765)
+
+### Adding Custom Voices
+
+Zen-Dub-Live supports voice cloning for anchor-specific voices:
+
+```python
+from zen_dub_live import AnchorVoice
+
+# Clone a voice from reference audio (10-30 seconds recommended)
+custom_voice = AnchorVoice.from_audio(
+    "anchor_audio_sample.wav",
+    name="anchor_01"
+)
+
+# Register for use in pipeline
+pipeline.register_voice(custom_voice)
+
+# Use in session
+session = await pipeline.create_session(
+    anchor_voice="anchor_01",
+    ...
+)
+```
+
+Voice profiles are stored as embeddings and can be saved/loaded:
+
+```python
+# Save voice profile
+custom_voice.save("voices/anchor_01.pt")
+
+# Load voice profile
+anchor_voice = AnchorVoice.load("voices/anchor_01.pt")
+```
 
 ## Overview
 
