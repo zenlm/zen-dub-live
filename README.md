@@ -26,19 +26,19 @@ tags:
 Zen-Dub-Live leverages Zen Omni's unified Thinker-Talker architecture for true end-to-end speech-to-speech translation:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         ZEN OMNI                                │
-├─────────────────────────────────────────────────────────────────┤
-│  THINKER (Understanding)                                        │
-│  ├── AuT Audio Encoder (650M) → 12.5Hz token rate              │
-│  ├── SigLIP2 Vision Encoder (540M) → lip reading, video        │
-│  └── MoE LLM (48L, 128 experts) → multimodal reasoning         │
-│                         ↓                                       │
-│  TALKER (Speech Generation)                                     │
-│  ├── MoE Transformer (20L, 128 experts)                        │
-│  ├── MTP Module → 16-codebook prediction per frame             │
-│  └── Code2Wav ConvNet → streaming 24kHz waveform               │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                         ZEN OMNI                         │
+├──────────────────────────────────────────────────────────┤
+│  THINKER (Understanding)                                 │
+│  ├── AuT Audio Encoder (650M) → 12.5Hz token rate        │
+│  ├── SigLIP2 Vision Encoder (540M) → lip reading, video  │
+│  └── MoE LLM (48L, 128 experts) → multimodal reasoning   │
+│                         ↓                                │
+│  TALKER (Speech Generation)                              │
+│  ├── MoE Transformer (20L, 128 experts)                  │
+│  ├── MTP Module → 16-codebook prediction per frame       │
+│  └── Code2Wav ConvNet → streaming 24kHz waveform         │
+└──────────────────────────────────────────────────────────┘
 ```
 
 **Key**: The entire pipeline is native - audio understanding, translation, AND speech synthesis happen end-to-end. No separate ASR or TTS models needed.
@@ -99,42 +99,42 @@ Zen-Dub-Live is a real-time AI dubbing platform for broadcast-grade speech-to-sp
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         ZEN-DUB-LIVE PIPELINE                            │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                      ZEN-LIVE                                     │   │
-│  │  • WebRTC/WHIP/WHEP streaming (github.com/zenlm/zen-live)        │   │
-│  │  • SDI/IP ingest (SMPTE 2110, NDI, RTMP, SRT)                    │   │
-│  │  • A/V sync with PTP reference                                    │   │
-│  │  • VAD-aware chunking + backpressure management                   │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
-│                              ↓                                           │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                      ZEN OMNI                                     │   │
-│  │  • Multimodal ASR (audio + lip reading)                          │   │
-│  │  • English → Spanish translation                                  │   │
-│  │  • Anchor-specific TTS                                            │   │
-│  │  • Viseme/prosody generation                                      │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
-│                              ↓                                           │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                       ZEN DUB                                     │   │
-│  │  • VAE latent-space face encoding                                │   │
-│  │  • One-step U-Net lip inpainting                                 │   │
-│  │  • Identity-preserving composition                                │   │
-│  │  • 30+ FPS real-time generation                                  │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
-│                              ↓                                           │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                    OUTPUT MULTIPLEXING                            │   │
-│  │  • Dubbed video + audio composite                                │   │
-│  │  • Fallback: audio-only dubbing                                  │   │
-│  │  • Distribution to downstream systems                             │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
-│                                                                          │
-└─────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                      ZEN-DUB-LIVE PIPELINE                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                         ZEN-LIVE                          │  │
+│  │  • WebRTC/WHIP/WHEP streaming (github.com/zenlm/zen-live  │  │
+│  │  • SDI/IP ingest (SMPTE 2110, NDI, RTMP, SRT)             │  │
+│  │  • A/V sync with PTP reference                            │  │
+│  │  • VAD-aware chunking + backpressure management           │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                              ↓                                  │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                      ZEN OMNI                             │  │
+│  │  • Multimodal ASR (audio + lip reading)                   │  │
+│  │  • English → Spanish translation                          │  │
+│  │  • Anchor-specific TTS                                    │  │
+│  │  • Viseme/prosody generation                              │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                              ↓                                  │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                       ZEN DUB                             │  │
+│  │  • VAE latent-space face encoding                         │  │
+│  │  • One-step U-Net lip inpainting                          │  │
+│  │  • Identity-preserving composition                        │  │
+│  │  • 30+ FPS real-time generation                           │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                              ↓                                  │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                    OUTPUT MULTIPLEXING                    │  │
+│  │  • Dubbed video + audio composite                         │  │
+│  │  • Fallback: audio-only dubbing                           │  │
+│  │  • Distribution to downstream systems                     │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Components
