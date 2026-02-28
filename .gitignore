@@ -1,0 +1,9 @@
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+QWEN.md
+*.safetensors
+*.bin
+*.gguf
+*.pt
+*.pth
