@@ -4,11 +4,15 @@ Stage 3: Voice Synthesis
 Anchor voice synthesis with prosody transfer and viseme generation.
 """
 
+import os
 import time
+import wave
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+
+from .engine_client import EngineConfig, SpeechResult, synthesize_speech
 
 try:
     import torch
@@ -16,6 +20,104 @@ try:
 except ImportError:
     torch = None
     F = None
+
+
+def _write_wav(path: str, audio: np.ndarray, sample_rate: int) -> None:
+    """Write a float [-1,1] or int16 mono array to a 16-bit PCM wav (stdlib only)."""
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    a = np.asarray(audio)
+    if a.dtype != np.int16:
+        a = np.clip(a, -1.0, 1.0)
+        a = (a * 32767.0).astype(np.int16)
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        w.writeframes(a.tobytes())
+
+
+def _read_wav(path: str) -> Tuple[np.ndarray, int]:
+    with wave.open(path, "rb") as w:
+        sr = w.getframerate()
+        n = w.getnframes()
+        ch = w.getnchannels()
+        raw = w.readframes(n)
+    a = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32767.0
+    if ch > 1:
+        a = a.reshape(-1, ch).mean(axis=1)
+    return a, sr
+
+
+def _placeholder_voice(text: str, sample_rate: int = 24000) -> np.ndarray:
+    """
+    Deterministic, dependency-free placeholder 'voice'.
+
+    NOTE: this is NOT neural TTS. It is a syllable-paced formant buzz used only
+    so the file-based pipeline can produce real audio (and exercise the ffmpeg
+    mux) when the gated zen3-tts codec is unavailable. Swap in the real engine
+    via HanzoTTSSynthesizer once a TTS server is reachable.
+    """
+    words = [w for w in text.split() if any(c.isalnum() for c in w)]
+    if not words:
+        words = ["..."]
+    # ~3.3 syllables/word, ~5 syllables/sec speaking rate.
+    syllables = max(1, sum(max(1, len(w) // 3) for w in words))
+    dur = min(30.0, max(0.6, syllables / 5.0))
+    n = int(dur * sample_rate)
+    t = np.arange(n) / sample_rate
+    # Two formants + slowly drifting pitch + per-syllable amplitude envelope.
+    f0 = 120.0 + 15.0 * np.sin(2 * np.pi * 0.5 * t)
+    sig = (
+        0.5 * np.sin(2 * np.pi * f0 * t)
+        + 0.25 * np.sin(2 * np.pi * (2 * f0) * t)
+        + 0.12 * np.sin(2 * np.pi * 650 * t)
+    )
+    syl_rate = syllables / dur
+    env = 0.5 * (1.0 + np.sin(2 * np.pi * syl_rate * t - np.pi / 2))
+    env = 0.15 + 0.85 * np.clip(env, 0.0, 1.0)
+    audio = (sig * env).astype(np.float32)
+    audio *= 0.8 / (np.max(np.abs(audio)) + 1e-6)
+    return audio
+
+
+class HanzoTTSSynthesizer:
+    """
+    REAL speech synthesis via a running hanzo zen3-tts engine.
+
+    Calls ``engine_client.synthesize_speech`` which hits ``POST /v1/audio/speech``
+    (or the ``hanzo run speech`` CLI). If ``allow_fallback`` is set and the
+    engine is unreachable / the gated codec is unavailable, it falls back to a
+    clearly-labeled placeholder voice so the file pipeline still completes.
+    """
+
+    def __init__(
+        self,
+        cfg: Optional[EngineConfig] = None,
+        voice: str = "cherry",
+        sample_rate: int = 24000,
+        allow_fallback: bool = True,
+    ):
+        self.cfg = cfg
+        self.voice = voice
+        self.sample_rate = sample_rate
+        self.allow_fallback = allow_fallback
+
+    def synthesize_to_file(self, text: str, out_wav: str) -> SpeechResult:
+        if self.cfg is not None:
+            try:
+                return synthesize_speech(
+                    self.cfg, text, out_wav, voice=self.voice, sample_rate=self.sample_rate
+                )
+            except Exception as e:
+                if not self.allow_fallback:
+                    raise
+                note = f"engine TTS unavailable ({type(e).__name__}: {e}); used placeholder voice"
+        else:
+            note = "no TTS engine configured; used placeholder voice"
+
+        audio = _placeholder_voice(text, self.sample_rate)
+        _write_wav(out_wav, audio, self.sample_rate)
+        return SpeechResult(out_wav, self.sample_rate, "fallback-formant", note=note)
 
 
 @dataclass

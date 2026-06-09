@@ -97,6 +97,27 @@ For more information: https://zenlm.org/docs/zen-dub-live
         help="Translation model"
     )
 
+    # File-based end-to-end dub (non-realtime) -- the phase0 demo path
+    fd = subparsers.add_parser(
+        "dub-file",
+        help="File-based e2e dub: ASR/translate (hanzo) -> zen3-tts -> MuseTalk -> ffmpeg mux",
+    )
+    fd.add_argument("input", help="Input video file (short talking-head clip)")
+    fd.add_argument("--output", "-o", help="Output dubbed video (default: <input>_dubbed.mp4)")
+    fd.add_argument("--source", "-s", default="en", help="Source language code")
+    fd.add_argument("--target", "-t", default="es", help="Target language code")
+    fd.add_argument("--transcript", help="Known source transcript (translate via text LLM)")
+    fd.add_argument("--transcript-file", help="Path to a file containing the source transcript")
+    fd.add_argument("--llm-url", help="Hanzo LLM server base URL, e.g. http://localhost:8124")
+    fd.add_argument("--llm-model", default="default", help="LLM model id for the server")
+    fd.add_argument("--tts-url", help="Hanzo zen3-tts server base URL, e.g. http://localhost:8125")
+    fd.add_argument("--tts-model", default="default", help="TTS model id for the server")
+    fd.add_argument("--tts-model-path", help="Local zen3-tts model dir for `hanzo run speech` fallback")
+    fd.add_argument("--no-musetalk", action="store_true", help="Skip MuseTalk lip-sync")
+    fd.add_argument("--musetalk-repo", help="Path to the zen-dub/MuseTalk checkout")
+    fd.add_argument("--no-tts-fallback", action="store_true",
+                    help="Fail instead of using the placeholder voice when TTS engine is down")
+
     # Status command
     status_parser = subparsers.add_parser("status", help="Show pipeline status")
 
@@ -109,6 +130,8 @@ For more information: https://zenlm.org/docs/zen-dub-live
         asyncio.run(cmd_live(args))
     elif args.command == "dub":
         asyncio.run(cmd_dub(args))
+    elif args.command == "dub-file":
+        cmd_dub_file(args)
     elif args.command == "status":
         cmd_status(args)
     elif args.command == "voices":
@@ -199,6 +222,42 @@ async def cmd_dub(args):
     print(f"\n✅ Complete!")
     print(f"   Segments processed: {result['segments']}")
     print(f"   Output: {result['output']}")
+
+
+def cmd_dub_file(args):
+    """Run the file-based end-to-end dub (phase0 demo)."""
+    from .filedub import dub_file, format_report, FFMPEG
+
+    if FFMPEG is None:
+        print("ERROR: ffmpeg not found. Set FFMPEG_BIN/FFPROBE_BIN or install ffmpeg.")
+        sys.exit(1)
+
+    output = args.output or args.input.rsplit(".", 1)[0] + "_dubbed.mp4"
+    transcript = args.transcript
+    if transcript is None and args.transcript_file:
+        with open(args.transcript_file) as f:
+            transcript = f.read().strip()
+
+    print(f"Dubbing (file mode): {args.input} -> {output}")
+    print(f"  {args.source} -> {args.target}")
+
+    report = dub_file(
+        input_video=args.input,
+        output_video=output,
+        source_lang=args.source,
+        target_lang=args.target,
+        transcript=transcript,
+        llm_url=args.llm_url,
+        llm_model=args.llm_model,
+        tts_url=args.tts_url,
+        tts_model=args.tts_model,
+        tts_model_path=args.tts_model_path,
+        use_musetalk=not args.no_musetalk,
+        musetalk_repo=args.musetalk_repo,
+        allow_tts_fallback=not args.no_tts_fallback,
+    )
+    print()
+    print(format_report(report))
 
 
 def cmd_status(args):

@@ -13,12 +13,15 @@ No separate TTS model needed - native speech-to-speech.
 """
 
 import asyncio
+import os
 import time
 from dataclasses import dataclass
 from threading import Thread
 from typing import AsyncIterator, Dict, List, Optional, Tuple
 
 import numpy as np
+
+from .engine_client import EngineConfig, chat_complete
 
 try:
     import torch
@@ -27,6 +30,18 @@ except ImportError:
     torch = None
     AutoProcessor = None
     TextIteratorStreamer = None
+
+
+# Map ISO-ish language codes to English names for the translation prompt.
+_LANG_NAMES = {
+    "en": "English", "es": "Spanish", "fr": "French", "de": "German",
+    "it": "Italian", "pt": "Portuguese", "ru": "Russian", "ja": "Japanese",
+    "ko": "Korean", "zh": "Chinese", "nl": "Dutch", "pl": "Polish",
+}
+
+
+def _lang_name(code: str) -> str:
+    return _LANG_NAMES.get(code.lower(), code)
 
 
 # Built-in Zen Omni speaker voices
@@ -120,6 +135,92 @@ class TranslationContext:
     def clear(self):
         """Clear context history."""
         self.history.clear()
+
+
+class HanzoEngineTranslator:
+    """
+    REAL translation via a running hanzo engine (OpenAI-compatible API).
+
+    This is the wiring that replaces the ``ZenOmniTranslator`` stub for the
+    file-based demo. It supports two input paths:
+
+    * ``translate_text(source_text, ...)`` -- when a transcript is available
+      (or produced by an upstream ASR pass), translate it with a text LLM via
+      ``POST /v1/chat/completions``. This path is fully exercised end-to-end.
+
+    * ``asr_translate(audio_path, ...)`` -- ask a *multimodal/omni* model to
+      transcribe + translate directly from audio (input_audio content part).
+      This is wired for models that accept audio (e.g. zen3-vl / zen-omni);
+      with a text-only model it is not usable and raises.
+
+    Either way the heavy lifting happens in the engine process, so this class
+    needs no torch/transformers in-process.
+    """
+
+    def __init__(self, cfg: EngineConfig, source_lang: str = "en", target_lang: str = "es"):
+        self.cfg = cfg
+        self.source_lang = source_lang
+        self.target_lang = target_lang
+
+    def translate_text(self, source_text: str, max_tokens: int = 512) -> TranslationResult:
+        start = time.time()
+        src = _lang_name(self.source_lang)
+        tgt = _lang_name(self.target_lang)
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    f"You are a professional dubbing translator. Translate the user "
+                    f"message from {src} to {tgt}. Preserve meaning and tone. "
+                    f"Output ONLY the {tgt} translation -- no quotes, no notes, no "
+                    f"original text. /no_think"
+                ),
+            },
+            {"role": "user", "content": source_text},
+        ]
+        target_text = chat_complete(self.cfg, messages, max_tokens=max_tokens, temperature=0.2)
+        return TranslationResult(
+            source_text=source_text,
+            target_text=target_text,
+            source_lang=self.source_lang,
+            target_lang=self.target_lang,
+            duration=time.time() - start,
+            audio=None,            # text engine produces no audio; TTS stage handles speech
+        )
+
+    def asr_translate(self, audio_path: str, max_tokens: int = 512) -> TranslationResult:
+        """Transcribe + translate directly from an audio file (omni/VLM models only)."""
+        import base64
+
+        start = time.time()
+        with open(audio_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode("ascii")
+        fmt = os.path.splitext(audio_path)[1].lstrip(".").lower() or "wav"
+        src = _lang_name(self.source_lang)
+        tgt = _lang_name(self.target_lang)
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    f"You are a speech translator. Listen to the {src} audio, then "
+                    f"output ONLY its {tgt} translation. /no_think"
+                ),
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_audio", "input_audio": {"data": b64, "format": fmt}},
+                ],
+            },
+        ]
+        target_text = chat_complete(self.cfg, messages, max_tokens=max_tokens, temperature=0.2)
+        return TranslationResult(
+            source_text="[audio]",
+            target_text=target_text,
+            source_lang=self.source_lang,
+            target_lang=self.target_lang,
+            duration=time.time() - start,
+        )
 
 
 class ZenOmniTranslator:

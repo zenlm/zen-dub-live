@@ -7,3 +7,15 @@ QWEN.md
 *.gguf
 *.pt
 *.pth
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Dub pipeline working dirs / outputs
+_zendub_work/
+*_dubbed.mp4

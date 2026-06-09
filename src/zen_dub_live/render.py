@@ -4,6 +4,10 @@ Stage 4: Lip-Sync Rendering
 Real-time lip manipulation using Zen Dub's VAE latent-space approach.
 """
 
+import os
+import shutil
+import subprocess
+import tempfile
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -20,6 +24,136 @@ except ImportError:
 
 from .capture import VideoFrame, FaceROI
 from .synthesis import VisemeFrame
+
+
+# Default location of the working zen-dub / MuseTalk PyTorch checkout on this box.
+DEFAULT_MUSETALK_REPO = os.environ.get(
+    "ZEN_DUB_REPO", "/home/z/work/zen/gh/zen-dub"
+)
+
+
+@dataclass
+class MuseTalkResult:
+    """Result of a clip-level MuseTalk repaint."""
+    output_video: str          # path to the lip-synced .mp4 (video only, no audio mux)
+    ran: bool                  # True if MuseTalk actually executed and produced output
+    backend: str               # "musetalk" | "skipped"
+    note: str = ""
+
+
+class MuseTalkRenderer:
+    """
+    REAL lip-sync via the zen-dub / MuseTalk PyTorch model, run as an external
+    process (``python -m scripts.inference``).
+
+    MuseTalk is a *clip-level* model (it consumes the whole source video + the
+    new audio, re-encodes every face crop's mouth via its VAE + UNet, and writes
+    a repainted video). That does not fit the per-frame ``_modify_mouth`` hook,
+    so the file-based pipeline calls ``render_clip()`` here instead.
+
+    This wiring builds the MuseTalk inference YAML, invokes the model in its own
+    repo (so its ``musetalk.*`` imports resolve), and returns the output path.
+
+    Requirements to actually RUN (all in the zen-dub repo / its env):
+      * model weights under ``<repo>/models`` (run ``download_weights.sh``)
+      * deps: torch, diffusers, opencv-python, librosa, mmpose/mmcv, ffmpeg
+      * a GPU is strongly recommended (CPU works but is very slow)
+
+    If those are missing, ``render_clip`` raises a clear error; callers decide
+    whether to fall back to copying the source frames (no lip-sync).
+    """
+
+    def __init__(
+        self,
+        repo_dir: str = DEFAULT_MUSETALK_REPO,
+        version: str = "v15",
+        python_bin: Optional[str] = None,
+        extra_env: Optional[dict] = None,
+    ):
+        self.repo_dir = repo_dir
+        self.version = version
+        self.python_bin = python_bin or os.environ.get("PYTHON", "python3")
+        self.extra_env = extra_env or {}
+
+    def _weights_present(self) -> bool:
+        models = os.path.join(self.repo_dir, "models")
+        unet_v15 = os.path.join(models, "zen-dubV15", "unet.pth")
+        unet_v1 = os.path.join(models, "zen-dub", "pytorch_model.bin")
+        return os.path.exists(unet_v15) or os.path.exists(unet_v1)
+
+    def render_clip(self, video_path: str, audio_path: str, out_video: str) -> MuseTalkResult:
+        """
+        Repaint the speaker's mouth in ``video_path`` to match ``audio_path``.
+
+        Invokes the real MuseTalk inference script in ``self.repo_dir``.
+        """
+        scripts_inf = os.path.join(self.repo_dir, "scripts", "inference.py")
+        if not os.path.exists(scripts_inf):
+            raise FileNotFoundError(f"MuseTalk inference script not found: {scripts_inf}")
+        if not self._weights_present():
+            raise FileNotFoundError(
+                f"MuseTalk weights missing under {self.repo_dir}/models -- "
+                f"run {self.repo_dir}/download_weights.sh first."
+            )
+
+        os.makedirs(os.path.dirname(os.path.abspath(out_video)), exist_ok=True)
+        work = tempfile.mkdtemp(prefix="zendub_musetalk_")
+        try:
+            # MuseTalk reads a YAML task list: { task_0: {video_path, audio_path, result_name} }
+            cfg_path = os.path.join(work, "task.yaml")
+            result_name = os.path.basename(out_video)
+            with open(cfg_path, "w") as f:
+                f.write("task_0:\n")
+                f.write(f"  video_path: {os.path.abspath(video_path)}\n")
+                f.write(f"  audio_path: {os.path.abspath(audio_path)}\n")
+                f.write(f"  result_name: {result_name}\n")
+                if self.version != "v15":
+                    f.write("  bbox_shift: 0\n")
+
+            result_dir = os.path.join(work, "results")
+            if self.version == "v15":
+                unet = os.path.join(self.repo_dir, "models", "zen-dubV15", "unet.pth")
+                ver_arg = "v15"
+            else:
+                unet = os.path.join(self.repo_dir, "models", "zen-dub", "pytorch_model.bin")
+                ver_arg = "v1"
+            unet_config = os.path.join(self.repo_dir, "models", "zen-dubV15", "zen-dub.json")
+
+            cmd = [
+                self.python_bin, "-m", "scripts.inference",
+                "--inference_config", cfg_path,
+                "--result_dir", result_dir,
+                "--unet_model_path", unet,
+                "--unet_config", unet_config,
+                "--version", ver_arg,
+            ]
+            env = dict(os.environ)
+            env.setdefault("PYTHONPATH", self.repo_dir)
+            env.update(self.extra_env)
+
+            proc = subprocess.run(
+                cmd, cwd=self.repo_dir, env=env,
+                capture_output=True, text=True, timeout=3600,
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    f"MuseTalk inference failed (rc={proc.returncode}):\n"
+                    f"{proc.stderr[-1500:]}"
+                )
+
+            # Find the produced video under result_dir/<version>/.
+            produced = None
+            for root, _dirs, files in os.walk(result_dir):
+                for fn in files:
+                    if fn == result_name or (fn.endswith(".mp4") and result_name.split(".")[0] in fn):
+                        produced = os.path.join(root, fn)
+                        break
+            if produced is None:
+                raise RuntimeError(f"MuseTalk produced no output under {result_dir}")
+            shutil.copyfile(produced, out_video)
+            return MuseTalkResult(out_video, ran=True, backend="musetalk")
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
 
 
 @dataclass
@@ -290,17 +424,19 @@ class ZenDubRenderer:
         audio_features: np.ndarray,
         viseme: VisemeFrame
     ) -> np.ndarray:
-        """Modify mouth region based on audio/viseme."""
-        # Simplified implementation
-        # Full implementation would use VAE + inpainter
+        """Modify mouth region based on audio/viseme.
 
-        # For now, just return the original
-        # Real implementation would:
-        # 1. Encode face to latent space
-        # 2. Encode audio features
-        # 3. Run one-step inpainting
-        # 4. Decode back to pixel space
+        NOTE: real lip-sync in this project is performed at the *clip* level by
+        ``MuseTalkRenderer.render_clip`` (the zen-dub/MuseTalk PyTorch model run
+        as an external process), because MuseTalk's VAE+UNet repaint needs the
+        whole audio track and per-frame face crops with landmarks -- it does not
+        map onto this single-frame streaming hook. The file-based demo therefore
+        bypasses this method and calls ``MuseTalkRenderer`` directly.
 
+        This per-frame path is kept for the realtime skeleton and returns the
+        crop unchanged (identity) until a true one-step inpainter checkpoint is
+        wired here.
+        """
         return face_crop
 
     async def render_batch(
